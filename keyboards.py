@@ -39,18 +39,38 @@ def psychologist_main_menu():
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-def create_messages_inline_keyboard(messages):
-    """Create inline keyboard for messages"""
+def create_messages_inline_keyboard(messages, page=1, per_page=5):
+    """Create inline keyboard for messages with pagination"""
     keyboard = []
-    for msg in messages:
-        user_info = "Anonymous" if msg['is_anonymous'] else f"ID: {msg['id']}"
-        preview = msg['message_text'][:30] + "..." if len(msg['message_text']) > 30 else msg['message_text']
+
+    # Calculate pagination
+    total_messages = len(messages)
+    total_pages = (total_messages + per_page - 1) // per_page  # Ceiling division
+    start_idx = (page - 1) * per_page
+    end_idx = min(start_idx + per_page, total_messages)
+
+    # Add message buttons for current page
+    for msg in messages[start_idx:end_idx]:
+        user_info = "👤 Anon" if msg['is_anonymous'] else f"📝 #{msg['id']}"
+        # Shorten to 15 characters
+        preview = msg['message_text'][:15] + "..." if len(msg['message_text']) > 15 else msg['message_text']
         keyboard.append([
             InlineKeyboardButton(
                 text=f"{user_info} - {preview}",
                 callback_data=f"msg_{msg['id']}"
             )
         ])
+
+    # Add pagination buttons if needed
+    if total_pages > 1:
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(InlineKeyboardButton(text="◀️ Previous", callback_data=f"msg_page_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="msg_page_info"))
+        if page < total_pages:
+            nav_buttons.append(InlineKeyboardButton(text="Next ▶️", callback_data=f"msg_page_{page+1}"))
+        keyboard.append(nav_buttons)
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
@@ -63,10 +83,18 @@ def create_reply_keyboard(message_id):
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def create_appointments_inline_keyboard(appointments):
-    """Create inline keyboard for appointments"""
+def create_appointments_inline_keyboard(appointments, page=1, per_page=5):
+    """Create inline keyboard for appointments with pagination"""
     keyboard = []
-    for apt in appointments:
+
+    # Calculate pagination
+    total_appointments = len(appointments)
+    total_pages = (total_appointments + per_page - 1) // per_page  # Ceiling division
+    start_idx = (page - 1) * per_page
+    end_idx = min(start_idx + per_page, total_appointments)
+
+    # Add appointment buttons for current page
+    for apt in appointments[start_idx:end_idx]:
         status_emoji = {
             'pending': '🕐',
             'confirmed': '✅',
@@ -74,12 +102,26 @@ def create_appointments_inline_keyboard(appointments):
             'completed': '✔️'
         }.get(apt['status'], '❓')
 
+        # Shorten name if needed
+        name = apt['full_name'][:20] + "..." if len(apt['full_name']) > 20 else apt['full_name']
+
         keyboard.append([
             InlineKeyboardButton(
-                text=f"{status_emoji} {apt['full_name']} - {apt['preferred_date']}",
+                text=f"{status_emoji} {name} - {apt['preferred_date']}",
                 callback_data=f"apt_{apt['id']}"
             )
         ])
+
+    # Add pagination buttons if needed
+    if total_pages > 1:
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(InlineKeyboardButton(text="◀️ Previous", callback_data=f"apt_page_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="apt_page_info"))
+        if page < total_pages:
+            nav_buttons.append(InlineKeyboardButton(text="Next ▶️", callback_data=f"apt_page_{page+1}"))
+        keyboard.append(nav_buttons)
+
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 

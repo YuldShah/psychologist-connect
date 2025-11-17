@@ -235,7 +235,26 @@ async def back_to_messages(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"📬 <b>Unreplied Messages ({len(messages)})</b>\n\n"
         "Select a message to view and reply:",
-        reply_markup=create_messages_inline_keyboard(messages),
+        reply_markup=create_messages_inline_keyboard(messages, page=1),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("msg_page_"), IsPsychologistCallback())
+async def messages_pagination(callback: CallbackQuery, state: FSMContext):
+    """Handle messages pagination"""
+    if callback.data == "msg_page_info":
+        await callback.answer()
+        return
+
+    page = int(callback.data.split("_")[2])
+    messages = await db.get_unreplied_messages()
+
+    await callback.message.edit_text(
+        f"📬 <b>Unreplied Messages ({len(messages)})</b>\n\n"
+        "Select a message to view and reply:",
+        reply_markup=create_messages_inline_keyboard(messages, page=page),
         parse_mode="HTML"
     )
     await callback.answer()
@@ -383,7 +402,26 @@ async def back_to_appointments(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"📅 <b>All Appointments ({len(appointments)})</b>\n\n"
         "Select an appointment to manage:",
-        reply_markup=create_appointments_inline_keyboard(appointments),
+        reply_markup=create_appointments_inline_keyboard(appointments, page=1),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("apt_page_"), IsPsychologistCallback())
+async def appointments_pagination(callback: CallbackQuery, state: FSMContext):
+    """Handle appointments pagination"""
+    if callback.data == "apt_page_info":
+        await callback.answer()
+        return
+
+    page = int(callback.data.split("_")[2])
+    appointments = await db.get_all_appointments()
+
+    await callback.message.edit_text(
+        f"📅 <b>All Appointments ({len(appointments)})</b>\n\n"
+        "Select an appointment to manage:",
+        reply_markup=create_appointments_inline_keyboard(appointments, page=page),
         parse_mode="HTML"
     )
     await callback.answer()

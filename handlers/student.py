@@ -7,6 +7,7 @@ from states import StudentStates
 from keyboards import main_menu_keyboard, chat_type_keyboard, cancel_keyboard
 import database as db
 from config import PSYCHOLOGIST_ID
+import validators
 
 router = Router()
 
@@ -212,8 +213,12 @@ async def process_appointment_student_id(message: Message, state: FSMContext):
         return
 
     await state.update_data(appointment_student_id=message.text)
+
+    working_hours = validators.format_working_hours()
     await message.answer(
-        "Please enter your <b>preferred date</b> (e.g., Monday, October 15 or 15.10.2024):",
+        f"{working_hours}\n\n"
+        "Please enter your <b>preferred date</b>\n"
+        "Examples: Monday, 15.10.2024, 15/10/2024",
         reply_markup=cancel_keyboard(),
         parse_mode="HTML"
     )
@@ -238,13 +243,29 @@ async def process_preferred_date(message: Message, state: FSMContext):
 
 @router.message(StateFilter(StudentStates.entering_preferred_time))
 async def process_preferred_time(message: Message, state: FSMContext):
-    """Process preferred time"""
+    """Process preferred time with validation"""
     if message.text == "❌ Cancel":
         await cmd_menu(message, state)
         return
 
+    data = await state.get_data()
+    preferred_date = data.get('preferred_date')
+
+    # Validate date and time
+    is_valid, validation_msg = validators.validate_appointment_time(preferred_date, message.text)
+
+    if not is_valid:
+        await message.answer(
+            f"{validation_msg}\n\n"
+            "Please enter a valid time (e.g., 10:00, 14:30, 2:00 PM):",
+            reply_markup=cancel_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     await state.update_data(preferred_time=message.text)
     await message.answer(
+        "✅ Time slot is available!\n\n"
         "Please briefly describe the <b>reason for your appointment</b> (optional):\n\n"
         "Or type 'skip' to skip this step.",
         reply_markup=cancel_keyboard(),
