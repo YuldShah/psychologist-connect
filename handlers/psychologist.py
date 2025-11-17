@@ -380,7 +380,7 @@ async def quick_reply_command(message: Message, state: FSMContext):
             await message.answer("❌ Message not found")
             return
 
-        if msg.replied:
+        if msg['replied']:
             await message.answer("⚠️ This message has already been replied to")
             return
 
