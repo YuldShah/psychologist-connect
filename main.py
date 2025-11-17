@@ -1,6 +1,8 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import BOT_TOKEN, PSYCHOLOGIST_ID
@@ -17,8 +19,11 @@ logger = logging.getLogger(__name__)
 
 async def main():
     """Main function to run the bot"""
-    # Initialize bot and dispatcher
-    bot = Bot(token=BOT_TOKEN)
+    # Initialize bot and dispatcher with default HTML parse mode
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
