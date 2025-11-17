@@ -38,7 +38,8 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 replied BOOLEAN DEFAULT FALSE,
                 psychologist_reply TEXT,
-                reply_at TIMESTAMP
+                reply_at TIMESTAMP,
+                telegram_message_id BIGINT
             )
         ''')
 
@@ -64,6 +65,9 @@ async def init_db():
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_messages_replied ON messages(replied)
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_telegram_id ON messages(telegram_message_id)
         ''')
         await conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)
@@ -158,6 +162,25 @@ async def get_message_by_id(message_id: int) -> Optional[dict]:
             message_id
         )
         return dict(message) if message else None
+
+
+async def get_message_by_telegram_id(telegram_message_id: int) -> Optional[dict]:
+    """Get message by Telegram message ID"""
+    async with pool.acquire() as conn:
+        message = await conn.fetchrow(
+            'SELECT * FROM messages WHERE telegram_message_id = $1',
+            telegram_message_id
+        )
+        return dict(message) if message else None
+
+
+async def update_telegram_message_id(message_db_id: int, telegram_message_id: int):
+    """Update telegram message ID for a message"""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE messages SET telegram_message_id = $1 WHERE id = $2',
+            telegram_message_id, message_db_id
+        )
 
 
 async def reply_to_message(message_id: int, reply_text: str) -> Optional[dict]:

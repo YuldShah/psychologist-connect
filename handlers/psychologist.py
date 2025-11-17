@@ -54,6 +54,54 @@ async def psychologist_start(message: Message, state: FSMContext):
     )
 
 
+# REPLY DETECTION - Must be before other message handlers
+@router.message(F.reply_to_message, IsPsychologist())
+async def handle_reply_to_student(message: Message):
+    """Detect when psychologist replies to a student message"""
+    # Get the original message ID that psychologist is replying to
+    reply_to_msg_id = message.reply_to_message.message_id
+
+    # Look up the student message by telegram message ID
+    student_msg = await db.get_message_by_telegram_id(reply_to_msg_id)
+
+    if not student_msg:
+        # Not replying to a student message, ignore
+        return
+
+    # Save the reply
+    await db.reply_to_message(student_msg['id'], message.text)
+
+    # Get the student user info
+    user = await db.get_user_by_id(student_msg['user_id'])
+
+    if user:
+        try:
+            # Send reply to student
+            notification = (
+                f"💬 <b>Reply from Psychologist</b>\n\n"
+                f"<i>{message.text}</i>\n\n"
+                f"If you need further assistance, feel free to send another message."
+            )
+            await message.bot.send_message(user['telegram_id'], notification, parse_mode="HTML")
+
+            # Confirm to psychologist
+            await message.reply(
+                "✅ <b>Reply sent successfully!</b>",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            await message.reply(
+                f"❌ <b>Error sending reply:</b> {e}\n"
+                "However, the reply has been saved.",
+                parse_mode="HTML"
+            )
+    else:
+        await message.reply(
+            "❌ <b>User not found.</b> Reply saved but not delivered.",
+            parse_mode="HTML"
+        )
+
+
 # MESSAGES MANAGEMENT
 @router.message(F.text == "📬 View Messages", IsPsychologist())
 async def view_messages(message: Message, state: FSMContext):

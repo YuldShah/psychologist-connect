@@ -142,23 +142,23 @@ async def process_message(message: Message, state: FSMContext):
     # Notify psychologist
     if is_anonymous:
         notification = (
-            f"📬 <b>New Anonymous Message</b>\n"
-            f"Message ID: {saved_message['id']}\n\n"
+            f"📬 <b>New Anonymous Message</b>\n\n"
             f"<i>{message.text}</i>\n\n"
-            f"Reply using: /reply {saved_message['id']}"
+            f"💡 <i>Reply to this message to respond to the student</i>"
         )
     else:
         notification = (
             f"📬 <b>New Message</b>\n"
-            f"Message ID: {saved_message['id']}\n"
             f"From: {data.get('full_name', 'N/A')}\n"
             f"Student ID: {data.get('student_id', 'N/A')}\n\n"
             f"<i>{message.text}</i>\n\n"
-            f"Reply using: /reply {saved_message['id']}"
+            f"💡 <i>Reply to this message to respond to the student</i>"
         )
 
     try:
-        await message.bot.send_message(PSYCHOLOGIST_ID, notification, parse_mode="HTML")
+        sent_msg = await message.bot.send_message(PSYCHOLOGIST_ID, notification, parse_mode="HTML")
+        # Store telegram message ID for reply detection
+        await db.update_telegram_message_id(saved_message['id'], sent_msg.message_id)
     except Exception as e:
         print(f"Error sending to psychologist: {e}")
 
