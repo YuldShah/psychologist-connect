@@ -95,7 +95,8 @@ async def process_full_name(message: Message, state: FSMContext):
 
     await state.update_data(full_name=message.text)
     await message.answer(
-        "Please enter your <b>student ID</b>:",
+        "Please enter your <b>student ID</b> (optional):\n\n"
+        "Type 'skip' if you are staff or prefer not to share.",
         reply_markup=cancel_keyboard(),
         parse_mode="HTML"
     )
@@ -104,16 +105,18 @@ async def process_full_name(message: Message, state: FSMContext):
 
 @router.message(StateFilter(StudentStates.entering_student_id))
 async def process_student_id(message: Message, state: FSMContext):
-    """Process student ID for identified chat"""
+    """Process student ID for identified chat (optional)"""
     if message.text == "❌ Cancel":
         await cmd_menu(message, state)
         return
 
-    await state.update_data(student_id=message.text)
+    # Allow skipping student ID
+    student_id = None if message.text.lower() == 'skip' else message.text
+    await state.update_data(student_id=student_id)
     data = await state.get_data()
 
     # Save user info to database
-    await db.update_user_info(message.from_user.id, data['full_name'], data['student_id'])
+    await db.update_user_info(message.from_user.id, data['full_name'], student_id)
 
     await message.answer(
         f"Thank you, {data['full_name']}!\n\n"
@@ -133,28 +136,30 @@ async def process_message(message: Message, state: FSMContext):
     data = await state.get_data()
     is_anonymous = data.get('is_anonymous', False)
 
-    # Save message to database
+    # Save message to database with student's message_id
     saved_message = await db.save_message(
         message.from_user.id,
         message.text,
-        is_anonymous
+        is_anonymous,
+        message.message_id
     )
 
-    # Notify psychologist
+    # Notify psychologist with clean format
     if is_anonymous:
-        notification = (
-            f"📬 <b>New Anonymous Message</b>\n\n"
-            f"<i>{message.text}</i>\n\n"
-            f"💡 <i>Reply to this message to respond to the student</i>"
-        )
+        notification = message.text
     else:
-        notification = (
-            f"📬 <b>New Message</b>\n"
-            f"From: {data.get('full_name', 'N/A')}\n"
-            f"Student ID: {data.get('student_id', 'N/A')}\n\n"
-            f"<i>{message.text}</i>\n\n"
-            f"💡 <i>Reply to this message to respond to the student</i>"
-        )
+        student_id = data.get('student_id')
+        if student_id:
+            notification = (
+                f"<blockquote>From: {data.get('full_name', 'N/A')}\n"
+                f"Student ID: {student_id}</blockquote>\n\n"
+                f"{message.text}"
+            )
+        else:
+            notification = (
+                f"<blockquote>From: {data.get('full_name', 'N/A')}</blockquote>\n\n"
+                f"{message.text}"
+            )
 
     try:
         sent_msg = await message.bot.send_message(PSYCHOLOGIST_ID, notification, parse_mode="HTML")

@@ -76,13 +76,12 @@ async def handle_reply_to_student(message: Message):
 
     if user:
         try:
-            # Send reply to student
-            notification = (
-                f"💬 <b>Reply from Psychologist</b>\n\n"
-                f"<i>{message.text}</i>\n\n"
-                f"If you need further assistance, feel free to send another message."
+            # Send reply to student (reply to their original message)
+            await message.bot.send_message(
+                user['telegram_id'],
+                message.text,
+                reply_to_message_id=student_msg['student_message_id']
             )
-            await message.bot.send_message(user['telegram_id'], notification, parse_mode="HTML")
 
             # Confirm to psychologist
             await message.reply(
@@ -197,12 +196,12 @@ async def process_reply(message: Message, state: FSMContext):
 
     if user:
         try:
-            notification = (
-                f"💬 <b>Reply from Psychologist</b>\n\n"
-                f"<i>{message.text}</i>\n\n"
-                f"If you need further assistance, feel free to send another message."
+            # Send reply to student (reply to their original message)
+            await message.bot.send_message(
+                user['telegram_id'],
+                message.text,
+                reply_to_message_id=replied_msg['student_message_id']
             )
-            await message.bot.send_message(user['telegram_id'], notification, parse_mode="HTML")
             await message.answer(
                 "✅ Reply sent successfully!",
                 reply_markup=psychologist_main_menu()

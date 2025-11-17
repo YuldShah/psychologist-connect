@@ -39,7 +39,8 @@ async def init_db():
                 replied BOOLEAN DEFAULT FALSE,
                 psychologist_reply TEXT,
                 reply_at TIMESTAMP,
-                telegram_message_id BIGINT
+                telegram_message_id BIGINT,
+                student_message_id BIGINT
             )
         ''')
 
@@ -117,7 +118,7 @@ async def update_user_info(telegram_id: int, full_name: str, student_id: str):
         )
 
 
-async def save_message(telegram_id: int, message_text: str, is_anonymous: bool = False) -> Optional[dict]:
+async def save_message(telegram_id: int, message_text: str, is_anonymous: bool = False, student_message_id: int = None) -> Optional[dict]:
     """Save a message from user"""
     async with pool.acquire() as conn:
         # Get user
@@ -130,11 +131,11 @@ async def save_message(telegram_id: int, message_text: str, is_anonymous: bool =
             # Create message
             message = await conn.fetchrow(
                 '''
-                INSERT INTO messages (user_id, message_text, is_anonymous)
-                VALUES ($1, $2, $3)
+                INSERT INTO messages (user_id, message_text, is_anonymous, student_message_id)
+                VALUES ($1, $2, $3, $4)
                 RETURNING *
                 ''',
-                user['id'], message_text, is_anonymous
+                user['id'], message_text, is_anonymous, student_message_id
             )
             return dict(message) if message else None
 
