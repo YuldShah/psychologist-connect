@@ -25,3 +25,4 @@ class PsychologistStates(StatesGroup):
     replying_to_message = State()
     managing_appointments = State()
     updating_appointment = State()
+    entering_appointment_comment = State()  # For optional comment on actions

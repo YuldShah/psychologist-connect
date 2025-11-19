@@ -323,69 +323,120 @@ async def show_appointment_detail(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("confirm_"), IsPsychologistCallback())
 async def confirm_appointment(callback: CallbackQuery, state: FSMContext):
-    """Confirm an appointment"""
+    """Ask for optional comment before confirming appointment"""
     appointment_id = int(callback.data.split("_")[1])
-    apt = await db.update_appointment_status(appointment_id, "confirmed")
 
-    if apt:
-        user = await db.get_user_by_id(apt['user_id'])
-        if user:
-            try:
-                notification = (
-                    f"✅ <b>Appointment Confirmed!</b>\n\n"
-                    f"Your appointment has been confirmed:\n"
-                    f"📆 Date: {apt['preferred_date']}\n"
-                    f"🕐 Time: {apt['preferred_time']}\n\n"
-                    f"Please arrive on time. Looking forward to seeing you!"
-                )
-                await callback.bot.send_message(user['telegram_id'], notification, parse_mode="HTML")
-            except Exception as e:
-                print(f"Error notifying user: {e}")
+    await state.update_data(
+        action_appointment_id=appointment_id,
+        action_type="confirmed"
+    )
 
-        await callback.answer("✅ Appointment confirmed!")
-        await back_to_appointments(callback, state)
-    else:
-        await callback.answer("❌ Error confirming appointment")
+    await callback.message.answer(
+        "💬 Add an optional comment (or type 'skip' to skip):"
+    )
+    await state.set_state(PsychologistStates.entering_appointment_comment)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("cancel_"), IsPsychologistCallback())
 async def cancel_appointment(callback: CallbackQuery, state: FSMContext):
-    """Cancel an appointment"""
+    """Ask for optional comment before canceling appointment"""
     appointment_id = int(callback.data.split("_")[1])
-    apt = await db.update_appointment_status(appointment_id, "cancelled")
+
+    await state.update_data(
+        action_appointment_id=appointment_id,
+        action_type="cancelled"
+    )
+
+    await callback.message.answer(
+        "💬 Add an optional comment (or type 'skip' to skip):"
+    )
+    await state.set_state(PsychologistStates.entering_appointment_comment)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("complete_"), IsPsychologistCallback())
+async def complete_appointment(callback: CallbackQuery, state: FSMContext):
+    """Ask for optional comment before completing appointment"""
+    appointment_id = int(callback.data.split("_")[1])
+
+    await state.update_data(
+        action_appointment_id=appointment_id,
+        action_type="completed"
+    )
+
+    await callback.message.answer(
+        "💬 Add an optional comment (or type 'skip' to skip):"
+    )
+    await state.set_state(PsychologistStates.entering_appointment_comment)
+    await callback.answer()
+
+
+@router.message(StateFilter(PsychologistStates.entering_appointment_comment), IsPsychologist())
+async def process_appointment_comment(message: Message, state: FSMContext):
+    """Process optional comment and update appointment"""
+    data = await state.get_data()
+    appointment_id = data.get('action_appointment_id')
+    action_type = data.get('action_type')
+
+    # Get comment (None if skipped)
+    comment = None if message.text.lower() == 'skip' else message.text
+
+    # Update appointment with comment
+    apt = await db.update_appointment_status(appointment_id, action_type, comment)
 
     if apt:
         user = await db.get_user_by_id(apt['user_id'])
         if user:
             try:
-                notification = (
-                    f"❌ <b>Appointment Cancelled</b>\n\n"
-                    f"Unfortunately, your appointment for {apt['preferred_date']} "
-                    f"at {apt['preferred_time']} has been cancelled.\n\n"
-                    f"Please feel free to book another appointment or send a message "
-                    f"if you need assistance."
-                )
-                await callback.bot.send_message(user['telegram_id'], notification, parse_mode="HTML")
+                # Create notification based on action type
+                if action_type == "confirmed":
+                    notification = (
+                        f"✅ <b>Appointment Confirmed!</b>\n\n"
+                        f"Your appointment has been confirmed:\n"
+                        f"📆 Date: {apt['preferred_date']}\n"
+                        f"🕐 Time: {apt['preferred_time']}\n\n"
+                    )
+                    if comment:
+                        notification += f"💬 Note: {comment}\n\n"
+                    notification += "Please arrive on time. Looking forward to seeing you!"
+
+                elif action_type == "cancelled":
+                    notification = (
+                        f"❌ <b>Appointment Cancelled</b>\n\n"
+                        f"Unfortunately, your appointment for {apt['preferred_date']} "
+                        f"at {apt['preferred_time']} has been cancelled.\n\n"
+                    )
+                    if comment:
+                        notification += f"💬 Reason: {comment}\n\n"
+                    notification += "Please feel free to book another appointment or send a message if you need assistance."
+
+                elif action_type == "completed":
+                    notification = (
+                        f"✔️ <b>Appointment Completed</b>\n\n"
+                        f"Your appointment on {apt['preferred_date']} at {apt['preferred_time']} has been completed.\n\n"
+                    )
+                    if comment:
+                        notification += f"💬 Note: {comment}\n\n"
+                    notification += "Thank you for using our service!"
+
+                await message.bot.send_message(user['telegram_id'], notification)
             except Exception as e:
                 print(f"Error notifying user: {e}")
 
-        await callback.answer("❌ Appointment cancelled")
-        await back_to_appointments(callback, state)
+        # Confirm to psychologist
+        status_emoji = {"confirmed": "✅", "cancelled": "❌", "completed": "✔️"}.get(action_type, "✅")
+        await message.answer(
+            f"{status_emoji} Appointment {action_type}!",
+            reply_markup=psychologist_main_menu()
+        )
     else:
-        await callback.answer("❌ Error cancelling appointment")
+        await message.answer(
+            f"❌ Error updating appointment",
+            reply_markup=psychologist_main_menu()
+        )
 
-
-@router.callback_query(F.data.startswith("complete_"), IsPsychologistCallback())
-async def complete_appointment(callback: CallbackQuery, state: FSMContext):
-    """Mark appointment as completed"""
-    appointment_id = int(callback.data.split("_")[1])
-    apt = await db.update_appointment_status(appointment_id, "completed")
-
-    if apt:
-        await callback.answer("✔️ Appointment marked as completed")
-        await back_to_appointments(callback, state)
-    else:
-        await callback.answer("❌ Error updating appointment")
+    await state.clear()
 
 
 @router.callback_query(F.data == "back_to_appointments", IsPsychologistCallback())

@@ -107,38 +107,70 @@ async def identified_chat(message: Message, state: FSMContext):
 async def use_last_credentials(callback: CallbackQuery, state: FSMContext):
     """Use previously saved credentials"""
     user = await db.get_or_create_user(callback.from_user.id, callback.from_user.username)
+    data = await state.get_data()
+    is_booking = data.get('booking_appointment', False)
 
     await state.update_data(
         full_name=user['full_name'],
         student_id=user.get('student_id')
     )
 
-    await callback.message.edit_text(
-        f"✅ Using: {user['full_name']}" +
-        (f"\nStudent ID: {user.get('student_id')}" if user.get('student_id') else "") +
-        "\n\nPlease type your message to the psychologist:"
-    )
-    await callback.message.answer(
-        "Type your messages below.\n"
-        "When done, click '✅ Done Chatting'",
-        reply_markup=chat_session_keyboard()
-    )
-    await state.set_state(StudentStates.in_chat_session)
+    if is_booking:
+        # For appointment booking - proceed to date/time
+        await state.update_data(
+            appointment_full_name=user['full_name'],
+            appointment_student_id=user.get('student_id')
+        )
+        working_hours = validators.format_working_hours()
+        await callback.message.edit_text(
+            f"✅ Using: {user['full_name']}" +
+            (f"\nStudent ID: {user.get('student_id')}" if user.get('student_id') else "")
+        )
+        await callback.message.answer(
+            f"{working_hours}\n\n"
+            "Please enter your <b>preferred date</b>\n"
+            "Examples: Monday, 15.10.2024, 15/10/2024",
+            reply_markup=cancel_keyboard()
+        )
+        await state.set_state(StudentStates.entering_preferred_date)
+    else:
+        # For chat - proceed to chat session
+        await callback.message.edit_text(
+            f"✅ Using: {user['full_name']}" +
+            (f"\nStudent ID: {user.get('student_id')}" if user.get('student_id') else "") +
+            "\n\nPlease type your message to the psychologist:"
+        )
+        await callback.message.answer(
+            "Type your messages below.\n"
+            "When done, click '✅ Done Chatting'",
+            reply_markup=chat_session_keyboard()
+        )
+        await state.set_state(StudentStates.in_chat_session)
+
     await callback.answer()
 
 
 @router.callback_query(F.data == "enter_new_credentials", StateFilter(StudentStates.choosing_credentials))
 async def enter_new_credentials(callback: CallbackQuery, state: FSMContext):
     """Enter new credentials"""
-    await callback.message.edit_text(
-        "👤 <b>Share Information</b>\n\n"
-        "Please enter your <b>full name</b>:"
-    )
-    await callback.message.answer(
-        "Enter your full name:",
-        reply_markup=cancel_keyboard()
-    )
-    await state.set_state(StudentStates.entering_full_name)
+    data = await state.get_data()
+    is_booking = data.get('booking_appointment', False)
+
+    if is_booking:
+        await callback.message.edit_text("📅 <b>Book an Appointment</b>")
+        await callback.message.answer(
+            "Please enter your <b>full name</b>:",
+            reply_markup=cancel_keyboard()
+        )
+        await state.set_state(StudentStates.entering_appointment_full_name)
+    else:
+        await callback.message.edit_text("👤 <b>Share Information</b>")
+        await callback.message.answer(
+            "Please enter your <b>full name</b>:",
+            reply_markup=cancel_keyboard()
+        )
+        await state.set_state(StudentStates.entering_full_name)
+
     await callback.answer()
 
 
@@ -247,15 +279,28 @@ async def process_chat_message(message: Message, state: FSMContext):
 # APPOINTMENT BOOKING FLOW
 @router.message(F.text == "📅 Book Appointment", StateFilter(StudentStates.choosing_service))
 async def book_appointment(message: Message, state: FSMContext):
-    """Handle appointment booking"""
-    await message.answer(
-        "📅 <b>Book an Appointment</b>\n\n"
-        "Let's schedule your appointment with the psychologist.\n\n"
-        "Please enter your <b>full name</b>:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
-    )
-    await state.set_state(StudentStates.entering_appointment_full_name)
+    """Handle appointment booking - check for saved credentials"""
+    # Check if user has saved credentials
+    user = await db.get_or_create_user(message.from_user.id, message.from_user.username)
+
+    if user.get('full_name'):
+        # User has saved credentials - show options
+        await message.answer(
+            "📅 <b>Book an Appointment</b>\n\n"
+            "Would you like to use your previous information or enter new details?",
+            reply_markup=create_credentials_keyboard(user['full_name'], user.get('student_id'))
+        )
+        await state.update_data(booking_appointment=True)
+        await state.set_state(StudentStates.choosing_credentials)
+    else:
+        # No saved credentials - ask for new info
+        await message.answer(
+            "📅 <b>Book an Appointment</b>\n\n"
+            "Let's schedule your appointment with the psychologist.\n\n"
+            "Please enter your <b>full name</b>:",
+            reply_markup=cancel_keyboard()
+        )
+        await state.set_state(StudentStates.entering_appointment_full_name)
 
 
 @router.message(StateFilter(StudentStates.entering_appointment_full_name))
@@ -266,46 +311,79 @@ async def process_appointment_name(message: Message, state: FSMContext):
         return
 
     await state.update_data(appointment_full_name=message.text)
+    # Save to user profile
+    await db.update_user_info(message.from_user.id, message.text, None)
+
     await message.answer(
-        "Please enter your <b>student ID</b>:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        "Please enter your <b>student ID</b> (optional):\n\n"
+        "Click '⏭️ Skip' if you are staff or prefer not to share.",
+        reply_markup=skip_keyboard()
     )
     await state.set_state(StudentStates.entering_appointment_student_id)
 
 
 @router.message(StateFilter(StudentStates.entering_appointment_student_id))
 async def process_appointment_student_id(message: Message, state: FSMContext):
-    """Process student ID for appointment"""
+    """Process student ID for appointment (optional)"""
     if message.text == "❌ Cancel":
         await cmd_menu(message, state)
         return
 
-    await state.update_data(appointment_student_id=message.text)
+    # Allow skipping student ID
+    student_id = None if message.text == "⏭️ Skip" else message.text
+    await state.update_data(appointment_student_id=student_id)
+
+    # Save to user profile
+    data = await state.get_data()
+    await db.update_user_info(message.from_user.id, data['appointment_full_name'], student_id)
 
     working_hours = validators.format_working_hours()
     await message.answer(
         f"{working_hours}\n\n"
         "Please enter your <b>preferred date</b>\n"
         "Examples: Monday, 15.10.2024, 15/10/2024",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        reply_markup=cancel_keyboard()
     )
     await state.set_state(StudentStates.entering_preferred_date)
 
 
 @router.message(StateFilter(StudentStates.entering_preferred_date))
 async def process_preferred_date(message: Message, state: FSMContext):
-    """Process preferred date"""
+    """Process and validate preferred date immediately"""
     if message.text == "❌ Cancel":
         await cmd_menu(message, state)
         return
 
+    # Validate date immediately
+    date_result = validators.parse_date(message.text)
+    if not date_result:
+        await message.answer(
+            "❌ Invalid date format.\n\n"
+            "Please use formats like:\n"
+            "• Monday\n"
+            "• 15.10.2024\n"
+            "• 15/10/2024",
+            reply_markup=cancel_keyboard()
+        )
+        return
+
+    day_name, parsed_date = date_result
+
+    # Check if working day
+    if day_name not in validators.WORKING_DAYS:
+        await message.answer(
+            f"❌ We don't work on {day_name.capitalize()}s.\n\n"
+            "Please choose Monday-Friday.",
+            reply_markup=cancel_keyboard()
+        )
+        return
+
     await state.update_data(preferred_date=message.text)
     await message.answer(
-        "Please enter your <b>preferred time</b> (e.g., 10:00 AM or 14:00):",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        "✅ Date is valid!\n\n"
+        "Please enter your <b>preferred time</b>\n"
+        "Examples: 10:00, 14:30, 2:00 PM",
+        reply_markup=cancel_keyboard()
     )
     await state.set_state(StudentStates.entering_preferred_time)
 
