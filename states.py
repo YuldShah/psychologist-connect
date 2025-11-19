@@ -6,9 +6,11 @@ class StudentStates(StatesGroup):
 
     # Chat states
     choosing_chat_type = State()
+    choosing_credentials = State()  # Choose between last used or new credentials
     entering_full_name = State()
     entering_student_id = State()
     entering_message = State()
+    in_chat_session = State()  # Continuous chat session
 
     # Appointment states
     entering_appointment_full_name = State()

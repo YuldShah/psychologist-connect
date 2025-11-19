@@ -1,10 +1,13 @@
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 from states import StudentStates
-from keyboards import main_menu_keyboard, chat_type_keyboard, cancel_keyboard
+from keyboards import (
+    main_menu_keyboard, chat_type_keyboard, cancel_keyboard,
+    skip_keyboard, chat_session_keyboard, create_credentials_keyboard
+)
 import database as db
 from config import PSYCHOLOGIST_ID
 import validators
@@ -65,25 +68,78 @@ async def anonymous_chat(message: Message, state: FSMContext):
     await state.update_data(is_anonymous=True)
     await message.answer(
         "🎭 <b>Anonymous Chat</b>\n\n"
-        "Your message will be sent anonymously to the psychologist.\n\n"
-        "Please type your message below:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        "Your messages will be sent anonymously to the psychologist.\n\n"
+        "Type your messages below.\n"
+        "When done, click '✅ Done Chatting'",
+        reply_markup=chat_session_keyboard()
     )
-    await state.set_state(StudentStates.entering_message)
+    await state.set_state(StudentStates.in_chat_session)
 
 
 @router.message(F.text == "👤 Share My Information", StateFilter(StudentStates.choosing_chat_type))
 async def identified_chat(message: Message, state: FSMContext):
-    """Handle identified chat selection"""
+    """Handle identified chat selection - check for saved credentials"""
     await state.update_data(is_anonymous=False)
-    await message.answer(
+
+    # Check if user has saved credentials
+    user = await db.get_or_create_user(message.from_user.id, message.from_user.username)
+
+    if user.get('full_name'):
+        # User has saved credentials - show options
+        await message.answer(
+            "👤 <b>Share Information</b>\n\n"
+            "Would you like to use your previous information or enter new details?",
+            reply_markup=create_credentials_keyboard(user['full_name'], user.get('student_id'))
+        )
+        await state.set_state(StudentStates.choosing_credentials)
+    else:
+        # No saved credentials - ask for new info
+        await message.answer(
+            "👤 <b>Share Information</b>\n\n"
+            "Please enter your <b>full name</b>:",
+            reply_markup=cancel_keyboard()
+        )
+        await state.set_state(StudentStates.entering_full_name)
+
+
+# Callback handlers for credential selection
+@router.callback_query(F.data == "use_last_credentials", StateFilter(StudentStates.choosing_credentials))
+async def use_last_credentials(callback: CallbackQuery, state: FSMContext):
+    """Use previously saved credentials"""
+    user = await db.get_or_create_user(callback.from_user.id, callback.from_user.username)
+
+    await state.update_data(
+        full_name=user['full_name'],
+        student_id=user.get('student_id')
+    )
+
+    await callback.message.edit_text(
+        f"✅ Using: {user['full_name']}" +
+        (f"\nStudent ID: {user.get('student_id')}" if user.get('student_id') else "") +
+        "\n\nPlease type your message to the psychologist:"
+    )
+    await callback.message.answer(
+        "Type your messages below.\n"
+        "When done, click '✅ Done Chatting'",
+        reply_markup=chat_session_keyboard()
+    )
+    await state.set_state(StudentStates.in_chat_session)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "enter_new_credentials", StateFilter(StudentStates.choosing_credentials))
+async def enter_new_credentials(callback: CallbackQuery, state: FSMContext):
+    """Enter new credentials"""
+    await callback.message.edit_text(
         "👤 <b>Share Information</b>\n\n"
-        "Please enter your <b>full name</b>:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        "Please enter your <b>full name</b>:"
+    )
+    await callback.message.answer(
+        "Enter your full name:",
+        reply_markup=cancel_keyboard()
     )
     await state.set_state(StudentStates.entering_full_name)
+    await callback.answer()
 
 
 @router.message(StateFilter(StudentStates.entering_full_name))
@@ -96,9 +152,8 @@ async def process_full_name(message: Message, state: FSMContext):
     await state.update_data(full_name=message.text)
     await message.answer(
         "Please enter your <b>student ID</b> (optional):\n\n"
-        "Type 'skip' if you are staff or prefer not to share.",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        "Click '⏭️ Skip' if you are staff or prefer not to share.",
+        reply_markup=skip_keyboard()
     )
     await state.set_state(StudentStates.entering_student_id)
 
@@ -111,7 +166,7 @@ async def process_student_id(message: Message, state: FSMContext):
         return
 
     # Allow skipping student ID
-    student_id = None if message.text.lower() == 'skip' else message.text
+    student_id = None if message.text == "⏭️ Skip" else message.text
     await state.update_data(student_id=student_id)
     data = await state.get_data()
 
@@ -120,19 +175,35 @@ async def process_student_id(message: Message, state: FSMContext):
 
     await message.answer(
         f"Thank you, {data['full_name']}!\n\n"
-        "Now please type your message to the psychologist:",
-        reply_markup=cancel_keyboard()
+        "Type your messages below.\n"
+        "When done, click '✅ Done Chatting'",
+        reply_markup=chat_session_keyboard()
     )
-    await state.set_state(StudentStates.entering_message)
+    await state.set_state(StudentStates.in_chat_session)
 
 
-@router.message(StateFilter(StudentStates.entering_message))
-async def process_message(message: Message, state: FSMContext):
-    """Process and send message to psychologist"""
-    if message.text == "❌ Cancel":
-        await cmd_menu(message, state)
-        return
+# Continuous chat session handler
+@router.message(F.text == "✅ Done Chatting", StateFilter(StudentStates.in_chat_session))
+async def done_chatting(message: Message, state: FSMContext):
+    """End chat session"""
+    await message.answer(
+        "✅ Chat session ended.\n\n"
+        "Thank you for using our service!",
+        reply_markup=main_menu_keyboard()
+    )
+    await state.clear()
+    await state.set_state(StudentStates.choosing_service)
 
+
+@router.message(F.text == "🔙 Back to Menu", StateFilter(StudentStates.in_chat_session))
+async def back_from_chat(message: Message, state: FSMContext):
+    """Go back to menu from chat"""
+    await cmd_menu(message, state)
+
+
+@router.message(StateFilter(StudentStates.in_chat_session))
+async def process_chat_message(message: Message, state: FSMContext):
+    """Process messages in continuous chat session"""
     data = await state.get_data()
     is_anonymous = data.get('is_anonymous', False)
 
@@ -162,22 +233,15 @@ async def process_message(message: Message, state: FSMContext):
             )
 
     try:
-        sent_msg = await message.bot.send_message(PSYCHOLOGIST_ID, notification, parse_mode="HTML")
+        sent_msg = await message.bot.send_message(PSYCHOLOGIST_ID, notification)
         # Store telegram message ID for reply detection
         await db.update_telegram_message_id(saved_message['id'], sent_msg.message_id)
+
+        # Quick confirmation (no exit from state)
+        await message.answer("✅ Sent!")
     except Exception as e:
         print(f"Error sending to psychologist: {e}")
-
-    # Confirm to student
-    await message.answer(
-        "✅ <b>Message Sent!</b>\n\n"
-        "Your message has been sent to the psychologist.\n"
-        "You will receive a response when the psychologist replies.",
-        reply_markup=main_menu_keyboard(),
-        parse_mode="HTML"
-    )
-    await state.clear()
-    await state.set_state(StudentStates.choosing_service)
+        await message.answer("❌ Error sending message. Please try again.")
 
 
 # APPOINTMENT BOOKING FLOW

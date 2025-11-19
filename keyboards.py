@@ -29,6 +29,40 @@ def cancel_keyboard():
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
+def skip_keyboard():
+    """Skip and Cancel buttons"""
+    keyboard = [
+        [KeyboardButton(text="⏭️ Skip")],
+        [KeyboardButton(text="❌ Cancel")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def chat_session_keyboard():
+    """Keyboard for active chat session"""
+    keyboard = [
+        [KeyboardButton(text="✅ Done Chatting")],
+        [KeyboardButton(text="🔙 Back to Menu")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def create_credentials_keyboard(full_name: str, student_id: str = None):
+    """Create inline keyboard for choosing credentials"""
+    student_id_text = f"\nStudent ID: {student_id}" if student_id else ""
+    keyboard = [
+        [InlineKeyboardButton(
+            text=f"✅ Use: {full_name}{student_id_text}",
+            callback_data="use_last_credentials"
+        )],
+        [InlineKeyboardButton(
+            text="✏️ Enter New Information",
+            callback_data="enter_new_credentials"
+        )]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 def psychologist_main_menu():
     """Main menu for psychologist"""
     keyboard = [
